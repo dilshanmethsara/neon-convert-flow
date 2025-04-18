@@ -2,6 +2,8 @@
 // Import the correct Deno standard library modules
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { FFmpeg } from "https://esm.sh/@ffmpeg/ffmpeg@0.12.7";
+import { fetchFile, toBlobURL } from "https://esm.sh/@ffmpeg/util@0.12.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -35,21 +37,47 @@ serve(async (req) => {
       .update({ status: 'processing' })
       .eq('id', conversionId);
 
+    console.log('Downloading video from:', videoUrl);
+    
     // Download the video file
     const response = await fetch(videoUrl);
     if (!response.ok) throw new Error('Failed to fetch video');
     const videoData = await response.arrayBuffer();
+    
+    console.log('Video downloaded, size:', videoData.byteLength);
 
-    // For demo purposes, we'll simulate processing by adding a delay
-    // In a real implementation, you would use FFmpeg for actual conversion
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Initialize FFmpeg
+    const ffmpeg = new FFmpeg();
+    console.log('Loading FFmpeg...');
+    
+    // Load ffmpeg core
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.4/dist/umd';
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+    
+    console.log('FFmpeg loaded successfully');
 
-    // Upload the "converted" file (which is the same file for demo)
-    const { error: uploadError } = await supabaseAdmin.storage
+    // Write input file to memory
+    await ffmpeg.writeFile('input.mp4', new Uint8Array(videoData));
+    console.log('Input file written');
+    
+    // Run conversion command
+    await ffmpeg.exec(['-i', 'input.mp4', '-c:v', 'libx264', '-preset', 'ultrafast', 'output.mp4']);
+    console.log('Conversion completed');
+    
+    // Read the converted file
+    const outputData = await ffmpeg.readFile('output.mp4');
+    console.log('Output file read, size:', outputData.byteLength);
+
+    // Upload the converted file
+    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
       .from('videos')
-      .upload(`converted/${conversionId}.mp4`, videoData);
+      .upload(`converted/${conversionId}.mp4`, outputData);
 
     if (uploadError) throw uploadError;
+    console.log('Converted file uploaded:', uploadData?.path);
 
     // Get the public URL
     const { data: { publicUrl } } = supabaseAdmin.storage
@@ -64,6 +92,8 @@ serve(async (req) => {
         converted_filename: publicUrl
       })
       .eq('id', conversionId);
+    
+    console.log('Conversion record updated, URL:', publicUrl);
 
     return new Response(
       JSON.stringify({ success: true, url: publicUrl }),

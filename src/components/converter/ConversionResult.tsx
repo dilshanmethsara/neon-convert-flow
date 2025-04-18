@@ -1,6 +1,8 @@
 
+import { useState, useEffect } from "react";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ConversionResultProps {
   originalFileName: string;
@@ -8,20 +10,32 @@ interface ConversionResultProps {
 }
 
 export function ConversionResult({ originalFileName, onReset }: ConversionResultProps) {
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const convertedFileName = originalFileName.split('.').slice(0, -1).join('.') + '.mp4';
   
-  // In a real app, this would be a actual download link to the converted file
+  useEffect(() => {
+    const fetchLatestConversion = async () => {
+      const { data, error } = await supabase
+        .from('conversions')
+        .select('converted_filename')
+        .eq('original_filename', originalFileName)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+        
+      if (data && !error) {
+        setDownloadUrl(data.converted_filename);
+      }
+    };
+    
+    fetchLatestConversion();
+  }, [originalFileName]);
+  
   const handleDownload = () => {
-    // Mock download by creating a blob and initiating download
-    const blob = new Blob(["Dummy content for demo purposes"], { type: "video/mp4" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = convertedFileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    if (downloadUrl) {
+      window.open(downloadUrl, '_blank');
+    }
   };
 
   return (
@@ -65,6 +79,7 @@ export function ConversionResult({ originalFileName, onReset }: ConversionResult
         <Button
           onClick={handleDownload}
           className="flex-1 bg-electricGreen hover:bg-electricGreen/80 text-black font-medium btn-glow animate-pulse-glow-green"
+          disabled={!downloadUrl}
         >
           <Download className="mr-2 h-5 w-5" />
           Download MP4
