@@ -3,22 +3,76 @@ import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { Upload, FileVideo, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/components/ui/use-toast";
 
 interface FileUploadProps {
-  onFileSelect: (file: File) => void;
+  onFileSelect: (file: File | null) => void;
   selectedFile: File | null;
 }
 
 export function FileUpload({ onFileSelect, selectedFile }: FileUploadProps) {
-  const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const { toast } = useToast();
 
   const onDrop = useCallback(
-    (acceptedFiles: File[]) => {
+    async (acceptedFiles: File[]) => {
       if (acceptedFiles.length > 0) {
-        onFileSelect(acceptedFiles[0]);
+        const file = acceptedFiles[0];
+        setUploading(true);
+        
+        try {
+          // Upload the file to Supabase storage
+          const { data, error } = await supabase.storage
+            .from('videos')
+            .upload(`uploads/${crypto.randomUUID()}-${file.name}`, file);
+
+          if (error) throw error;
+
+          // Create a conversion record
+          const { data: conversion, error: conversionError } = await supabase
+            .from('conversions')
+            .insert([{
+              original_filename: file.name,
+              converted_filename: file.name.replace(/\.[^/.]+$/, ".mp4")
+            }])
+            .select()
+            .single();
+
+          if (conversionError) throw conversionError;
+
+          // Get the public URL of the uploaded file
+          const { data: { publicUrl } } = supabase.storage
+            .from('videos')
+            .getPublicUrl(data.path);
+
+          // Start the conversion process
+          const response = await supabase.functions.invoke('convert-video', {
+            body: { videoUrl: publicUrl, conversionId: conversion.id }
+          });
+
+          if (!response.data?.success) {
+            throw new Error('Conversion failed to start');
+          }
+
+          onFileSelect(file);
+          toast({
+            title: "File uploaded successfully",
+            description: "Your video is being converted. You'll be notified when it's ready.",
+          });
+        } catch (error) {
+          console.error('Upload error:', error);
+          toast({
+            title: "Upload failed",
+            description: error.message,
+            variant: "destructive",
+          });
+        } finally {
+          setUploading(false);
+        }
       }
     },
-    [onFileSelect]
+    [onFileSelect, toast]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -28,6 +82,7 @@ export function FileUpload({ onFileSelect, selectedFile }: FileUploadProps) {
     },
     maxFiles: 1,
     multiple: false,
+    disabled: uploading,
   });
 
   return (

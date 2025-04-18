@@ -1,6 +1,8 @@
 
 import { useState, useEffect } from "react";
 import { Progress } from "@/components/ui/progress";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/components/ui/use-toast";
 
 interface ConversionProgressProps {
   isConverting: boolean;
@@ -9,32 +11,39 @@ interface ConversionProgressProps {
 
 export function ConversionProgress({ isConverting, onComplete }: ConversionProgressProps) {
   const [progress, setProgress] = useState(0);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (isConverting) {
-      setProgress(0);
-      const interval = setInterval(() => {
-        setProgress((prevProgress) => {
-          // Simulate progress
-          const newProgress = prevProgress + Math.random() * 2;
-          
-          if (newProgress >= 100) {
-            clearInterval(interval);
-            setTimeout(() => {
+      const channel = supabase
+        .channel('conversion-progress')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'conversions',
+          },
+          (payload) => {
+            if (payload.new.status === 'completed') {
+              setProgress(100);
+              toast({
+                title: "Conversion complete!",
+                description: "Your video has been successfully converted to MP4.",
+              });
               onComplete();
-            }, 500);
-            return 100;
+            } else if (payload.new.status === 'processing') {
+              setProgress(50);
+            }
           }
-          
-          return newProgress;
-        });
-      }, 200);
+        )
+        .subscribe();
 
       return () => {
-        clearInterval(interval);
+        supabase.removeChannel(channel);
       };
     }
-  }, [isConverting, onComplete]);
+  }, [isConverting, onComplete, toast]);
 
   if (!isConverting) {
     return null;
