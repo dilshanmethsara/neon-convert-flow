@@ -1,5 +1,3 @@
-
-// Import the correct Deno standard library modules
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { FFmpeg } from "https://esm.sh/@ffmpeg/ffmpeg@0.12.7";
@@ -19,10 +17,10 @@ serve(async (req) => {
   try {
     const { videoUrl, conversionId } = await req.json();
     
-    // Create Supabase client
+    // Create Supabase client using the SERVICE_ROLE_KEY
     const supabaseAdmin = createClient(
       'https://kmkpxyhuskdneirsjsaz.supabase.co',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      Deno.env.get('SERVICE_ROLE_KEY') ?? '',
       {
         auth: {
           autoRefreshToken: false,
