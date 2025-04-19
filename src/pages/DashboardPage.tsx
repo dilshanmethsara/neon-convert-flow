@@ -1,16 +1,58 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { FileUpload } from "@/components/converter/FileUpload";
 import { ConversionProgress } from "@/components/converter/ConversionProgress";
 import { ConversionResult } from "@/components/converter/ConversionResult";
 import { Button } from "@/components/ui/button";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function DashboardPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isConverting, setIsConverting] = useState(false);
   const [isConverted, setIsConverted] = useState(false);
+  
+  // Check if there's an in-progress conversion
+  useEffect(() => {
+    const checkPendingConversions = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('conversions')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+          
+        if (data && !error) {
+          if (data.status === 'processing') {
+            console.log("Found in-progress conversion:", data);
+            // Simulate file selection with a mock file object
+            setSelectedFile({
+              name: data.original_filename,
+              size: 0,
+              type: 'video/mp4',
+              lastModified: Date.now()
+            } as File);
+            setIsConverting(true);
+          } else if (data.status === 'completed' && data.converted_filename) {
+            console.log("Found completed conversion:", data);
+            setSelectedFile({
+              name: data.original_filename,
+              size: 0,
+              type: 'video/mp4',
+              lastModified: Date.now()
+            } as File);
+            setIsConverted(true);
+          }
+        }
+      } catch (error) {
+        console.error("Error checking conversions:", error);
+      }
+    };
+    
+    checkPendingConversions();
+  }, []);
   
   const handleFileSelect = (file: File | null) => {
     setSelectedFile(file);
